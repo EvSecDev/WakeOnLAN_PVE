@@ -6,7 +6,7 @@ This is based on the existing program here (credit to ojaksch): https://forum.pr
 ### Overview
 
 The way this is accomplished is by listening (via a packet capture) on an interface of the hypervisor for the standard WOL packet.
-The packet capture BPF (Berkley Packet Filter) and listen interface is the access control method, ensuring only authorized endpoints can power on VM/LXCs.
+The packet capture BPF (Berkeley Packet Filter) and listen interface is the access control method, ensuring only authorized endpoints can power on VM/LXCs.
 Once an authorized packet is received, the MAC address is decoded from UDP payload.
 With the decoded MAC address, the program will attempt to find a match in the supplied paths to the individual VM/LXC configuration files. 
 Once a VM match is found, it will use either the `qm` or `pct` commands to start the VM/LXC.
@@ -36,4 +36,4 @@ Usage of wol-server-pve-amd64-dynamic:
 2. Copy the wol-config.json file to the hypervisor.
 3. Configure the wol-config.json to include the options you require.
 4. A system service file is supplied for persistence, if desired.
-5. Start the servce using the configuration JSON and test with your choice of WOL client program.
+5. Start the service using the configuration JSON and test with your choice of WOL client program.

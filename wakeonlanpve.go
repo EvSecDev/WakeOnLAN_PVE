@@ -119,19 +119,24 @@ func logToRemote(message string) error {
 // ###################################
 
 func main() {
+	progVersion := "v1.0.1"
+
 	// GET CONFIGURATION PARAMETERS FROM JSON FILE
 	var configFile string
 	flag.StringVar(&configFile, "c", "wol-config.json", "Path to the configuration file")
 	versionFlagExists := flag.Bool("V", false, "Print Version Information")
+	versionNumberFlagExists := flag.Bool("v", false, "Print Version Information")
 	flag.Parse()
 
 	// VERSION INFO PRINTS
 	if *versionFlagExists {
-		fmt.Printf("WakeOnLAN_PVE v1.0.0 compiled using GO(%s) v1.23.1 on %s architecture %s\n", runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Printf("First party packages:\n")
-		fmt.Printf("runtime encoding/hex encoding/json flag fmt log/syslog net os os/exec path/filepath regexp strings sync time\n")
-		fmt.Printf("Third party packages:\n")
-		fmt.Printf("github.com/google/gopacket github.com/google/gopacket/pcap\n")
+		fmt.Printf("WakeOnLAN_PVE %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("First party packages: runtime encoding/hex encoding/json flag fmt log/syslog net os os/exec path/filepath regexp strings sync time\n")
+		fmt.Printf("Third party packages: github.com/google/gopacket github.com/google/gopacket/pcap\n")
+		os.Exit(0)
+	}
+	if *versionNumberFlagExists {
+		fmt.Println(progVersion)
 		os.Exit(0)
 	}
 
