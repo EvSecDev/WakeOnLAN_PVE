@@ -2,17 +2,18 @@
 package main
 
 import (
-	"runtime"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/syslog"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,7 @@ import (
 type parseJsonConfig struct {
 	ListenIntf            []ListenInterfaceParams `json:"listenIntf"`
 	VMConfigPaths         []string                `json:"pathToVMConfigurations"`
-	RemoteLogEnabled      bool		      `json:"syslogEnabled"`
+	RemoteLogEnabled      bool                    `json:"syslogEnabled"`
 	SyslogDestinationIP   string                  `json:"syslogDestinationIP"`
 	SyslogDestinationPort string                  `json:"syslogDestinationPort"`
 }
@@ -47,16 +48,25 @@ type ListenInterfaceParams struct {
 var remoteLogEnabled bool
 var syslogAddress *net.UDPAddr
 
+// Program Meta Info
+const progVersion = string("v1.0.2")
+const usage = `
+Options:
+    -c, --config </path/to/json>    Path to the configuration file [default: wol-config.json]
+    -s, --start-server              Start WOL Server (Requires '--config')
+    -h, --help                      Show this help menu
+    -V, --version                   Show version and packages
+    -v, --versionid                 Show only version number
+
+Documentation: <https://github.com/EvSecDev/WakeOnLAN_PVE>
+`
+
 // ###################################
 //      EXCEPTION HANDLING
 // ###################################
 
+// Logs error description and error - will exit entire program if requested
 func logError(errorDescription string, errorMessage error, exitRequested bool) {
-	// Return early if no error
-	if errorMessage == nil {
-		return
-	}
-
 	// Create formatted error message and give to message func
 	fullMessage := "Error: " + errorDescription + ": " + errorMessage.Error()
 	logMessage(fullMessage)
@@ -67,6 +77,7 @@ func logError(errorDescription string, errorMessage error, exitRequested bool) {
 	}
 }
 
+// Send message string to remote log server or stdout if remote log not enabled
 func logMessage(message string) {
 	var err error
 
@@ -87,6 +98,7 @@ func logMessage(message string) {
 	fmt.Printf("%s\n", message)
 }
 
+// Sends message to remote syslog server in standard-ish format
 func logToRemote(message string) error {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 
@@ -115,66 +127,102 @@ func logToRemote(message string) error {
 }
 
 // ###################################
-//	START HERE
+//	START
 // ###################################
 
 func main() {
-	progVersion := "v1.0.1"
-
-	// GET CONFIGURATION PARAMETERS FROM JSON FILE
+	// Program Argument Variables
 	var configFile string
-	flag.StringVar(&configFile, "c", "wol-config.json", "Path to the configuration file")
-	versionFlagExists := flag.Bool("V", false, "Print Version Information")
-	versionNumberFlagExists := flag.Bool("v", false, "Print Version Information")
+	var startServerFlagExists bool
+	var versionFlagExists bool
+	var versionNumberFlagExists bool
+
+	// Read Program Arguments - allowing both short and long args
+	flag.StringVar(&configFile, "c", "wol-config.json", "")
+	flag.StringVar(&configFile, "config", "wol-config.json", "")
+	flag.BoolVar(&startServerFlagExists, "s", false, "")
+	flag.BoolVar(&startServerFlagExists, "start-server", false, "")
+	flag.BoolVar(&versionFlagExists, "V", false, "")
+	flag.BoolVar(&versionFlagExists, "version", false, "")
+	flag.BoolVar(&versionNumberFlagExists, "v", false, "")
+	flag.BoolVar(&versionNumberFlagExists, "versionid", false, "")
+
+	// Custom help menu
+	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...\n%s", os.Args[0], usage) }
 	flag.Parse()
 
-	// VERSION INFO PRINTS
-	if *versionFlagExists {
+	// Act on arguments
+	if versionFlagExists {
 		fmt.Printf("WakeOnLAN_PVE %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Printf("First party packages: runtime encoding/hex encoding/json flag fmt log/syslog net os os/exec path/filepath regexp strings sync time\n")
-		fmt.Printf("Third party packages: github.com/google/gopacket github.com/google/gopacket/pcap\n")
-		os.Exit(0)
-	}
-	if *versionNumberFlagExists {
+		fmt.Print("Packages: runtime encoding/hex encoding/json flag fmt log/syslog net os os/exec path/filepath regexp strings sync time github.com/google/gopacket github.com/google/gopacket/pcap\n")
+	} else if versionNumberFlagExists {
 		fmt.Println(progVersion)
-		os.Exit(0)
+	} else if startServerFlagExists {
+		err := startServer(configFile)
+		if err != nil {
+			logError("failed to start server", err, true)
+		}
+	}
+}
+
+// ###################################
+//	PROCESS PACKETS
+// ###################################
+
+func startServer(configFile string) (err error) {
+	// Load config file contents
+	jsonConfigFile, err := os.ReadFile(configFile)
+	if err != nil {
+		err = fmt.Errorf("failed to read config file: %v", err)
+		return
 	}
 
-	// LOAD CONFIG FILE CONTENTS
-	jsonConfigFile, err := os.ReadFile(configFile)
-	logError("failed to read config file", err, true)
-
-	// PARSE CONFIG JSON
+	// Parse JSON config into struct
 	var config parseJsonConfig
 	err = json.Unmarshal(jsonConfigFile, &config)
-	logError("failed to parse JSON config", err ,true)
+	if err != nil {
+		err = fmt.Errorf("failed to parse JSON config", err)
+		return
+	}
 
-	// SETUP REMOTE LOGGING
+	// Setup remote logging if requested
 	if config.RemoteLogEnabled {
-		// SET GLOBAL FOR LOG FUNC AWARENESS
+		// Set address in global for awareness
 		if strings.Contains(config.SyslogDestinationIP, ":") {
 			syslogAddress, err = net.ResolveUDPAddr("udp", "["+config.SyslogDestinationIP+"]:"+config.SyslogDestinationPort)
 		} else {
 			syslogAddress, err = net.ResolveUDPAddr("udp", config.SyslogDestinationIP+":"+config.SyslogDestinationPort)
 		}
-		logError("failed to resolve syslog address", err, true)
+		if err != nil {
+			err = fmt.Errorf("failed to resolve syslog address", err)
+			return
+		}
 		remoteLogEnabled = true
 	} else {
 		remoteLogEnabled = false
 	}
 
 	// SHOW PROGRESS
-	logMessage("Server starting...")
+	logMessage(fmt.Sprintf("WOL-PVE Server (%s) starting...", progVersion))
 
-	// SETUP AND START A PCAP FOR EACH INTERFACE SPECIFIED IN CONFIG FILE
-	var WaitGroup sync.WaitGroup
-	for _, intfParams := range config.ListenIntf {
+	// Start packet captures for each listening interface
+	if len(config.ListenIntf) == 1 {
+		// If we are only listening on one interface, don't use a go routine (still have to use wait group)
+		var WaitGroup sync.WaitGroup
 		WaitGroup.Add(1)
-		go captureAndProcessPackets(&WaitGroup, intfParams, config.VMConfigPaths)
+		captureAndProcessPackets(&WaitGroup, config.ListenIntf[0], config.VMConfigPaths)
+		WaitGroup.Wait()
+	} else {
+		// One go routine per listen interface
+		var WaitGroup sync.WaitGroup
+		for _, intfParams := range config.ListenIntf {
+			WaitGroup.Add(1)
+			go captureAndProcessPackets(&WaitGroup, intfParams, config.VMConfigPaths)
+		}
+		WaitGroup.Wait()
 	}
-	WaitGroup.Wait()
 
-	os.Exit(0)
+	return
 }
 
 // ###################################
@@ -182,135 +230,291 @@ func main() {
 // ###################################
 
 func captureAndProcessPackets(WaitGroup *sync.WaitGroup, PCAPParameters ListenInterfaceParams, VMConfigPaths []string) {
-	// RECOVER FROM PANIC
+	// Recover from panic
 	defer func() {
 		if r := recover(); r != nil {
-			logError("Controller panic while processing deployment", fmt.Errorf("%v", r), true)
+			logError("panic while processing deployment", fmt.Errorf("%v", r), false)
 		}
 	}()
 
-	// SIGNAL ROUTINE IS DONE WHEN FUNC RETURNS
+	// Signal when routine is done
 	defer WaitGroup.Done()
 
-	// REGEX VARS
-	MatchPayloadRegex := regexp.MustCompile("ffffffffffff(([0-9A-Fa-f]{2}){6}){16}")
-	VMNameRegex := regexp.MustCompile(`(?i)name\:\s(.*)`)
-
-	// SETUP PACKET CAPTURE
+	// Open packet capture handle
 	PCAPHandle, err := pcap.OpenLive(PCAPParameters.ListenIntf, 1600, PCAPParameters.PromiscMode, pcap.BlockForever)
-	logError("failed to open capture device", err, true)
+	if err != nil {
+		logError("failed to open capture device", err, false)
+		return
+	}
 	defer PCAPHandle.Close()
 
-	// DEFINE BPF FILTER FROM CONFIG OPTIONS
+	// Create BPF filter with parameters from config
 	PCAPfilter := fmt.Sprintf("udp and ether src (%s) and src host (%s) and dst host (%s) and ether dst (%s) and dst port %s",
 		strings.Join(PCAPParameters.FilterSrcMAC, " or "), strings.Join(PCAPParameters.FilterSrcIP, " or "),
 		strings.Join(PCAPParameters.FilterDstIP, " or "), strings.Join(PCAPParameters.FilterDstMAC, " or "), PCAPParameters.FilterDstPort)
 
-	// SET BPF FILTER
+	// Set BPF filter on capture handle
 	err = PCAPHandle.SetBPFFilter(PCAPfilter)
-	logError("failed to set BPF filter", err ,true)
+	if err != nil {
+		logError("failed to set BPF filter", err, false)
+		return
+	}
 
-	// SHOW PROGRESS
+	// Show progress to user
 	logMessage(fmt.Sprintf("Listening for WOL packets on interface %s", PCAPParameters.ListenIntf))
 
-	// START PROCESSING PACKETS FROM LISTENING INTERFACE
+	// Process captured packets one at a time
 	packetSource := gopacket.NewPacketSource(PCAPHandle, PCAPHandle.LinkType())
 	for recvPacket := range packetSource.Packets() {
-		// GET PAYLOAD FROM RECEIVED PACKET - SKIP IF NONE
-		payload := recvPacket.ApplicationLayer()
-		if payload == nil {
+		// Ensure payload is valid and extract MAC address
+		MACAddress, err := validatePacket(recvPacket)
+		if err != nil {
+			logMessage(fmt.Sprintf("Receivd invalid packet: %v", err))
 			continue
 		}
 
-		// CONVERT TO HEX
-		hexPayload := hex.EncodeToString(payload.Payload())
-
-		// ENSURE PAYLOAD LENGTH IS WITHIN BOUNDS FOR A WOL PACKET
-		if len(hexPayload) < 24 {
-			logMessage("Bad received packet: payload must be at least 24 characters long")
-			continue
-		} else if len(hexPayload) > 205 {
-			logMessage("Bad received packet: payload cannot be more than 205 characters long")
-			continue
-		}
-
-		// CHECK RECEIVED PAYLOAD AGAINST REGEX FOR MAC ADDR
-		if !MatchPayloadRegex.MatchString(hexPayload) {
-			logMessage("Bad received packet: payload does not match mac address regex")
-			continue
-		}
-
-		// LOG RECEPTION OF WOL PACKET
+		// Log reception of WOL packet
 		logMessage(fmt.Sprintf("Received Wake-on-LAN packet on interface %s", PCAPParameters.ListenIntf))
 
-		// WAKE VM/LXC ASSOCIATED WITH RECEIVED MAC
-		WakeVM(hexPayload[12:24], VMNameRegex, VMConfigPaths)
+		// Get VM information from matching MAC
+		VMID, VMTYPE, VMNAME, err := matchMACtoVM(MACAddress, VMConfigPaths)
+		if err != nil {
+			logMessage(fmt.Sprintf("Error searching for MAC Address: %v", err))
+			continue
+		}
+
+		// Ensure VM information is valid
+		err = validateVMInfo(VMID, VMTYPE, VMNAME)
+		if err != nil {
+			logMessage(fmt.Sprintf("Error: %v for MAC %s", err, MACAddress))
+			continue
+		}
+
+		// Power on VM depending on type
+		if strings.Contains(VMTYPE, "qemu") {
+			err = powerOn("qm", "VM", VMID, VMNAME)
+		} else if strings.Contains(VMTYPE, "lxc") {
+			err = powerOn("pct", "LXC", VMID, VMNAME)
+		}
+
+		// Check for error in either power on function
+		if err != nil {
+			logMessage(fmt.Sprintf("%v", err))
+			continue
+		}
 	}
 }
 
 // ###################################
-//	PERFORM WOL ACTIONS
+//	VALIDATE PACKET
 // ###################################
 
-func WakeVM(payloadMACAddress string, VMNameRegex *regexp.Regexp, VMConfigPaths []string) {
-	// CREATE FORMATTED MAC FROM PAYLOAD
-	var MACAddress string
+// Ensures received packet payload is present, its length is correct, and its payload matches regex
+// Extracts the first 12 hex characters from the payload
+func validatePacket(recvPacket gopacket.Packet) (MACAddress string, err error) {
+	// Get payload from packet - skip if empty
+	payload := recvPacket.ApplicationLayer()
+	if payload == nil {
+		err = fmt.Errorf("payload is empty")
+		return
+	}
+
+	// Convert payload to hex
+	hexPayload := hex.EncodeToString(payload.Payload())
+
+	// Ensure payload length is within bounds for a WOL packet
+	if len(hexPayload) < 24 {
+		err = fmt.Errorf("payload must be at least 24 characters long")
+		return
+	} else if len(hexPayload) > 205 {
+		err = fmt.Errorf("payload cannot be more than 205 characters long")
+		return
+	}
+
+	// Regex for a WOL packet payload
+	MatchPayloadRegex := regexp.MustCompile("^(?:f{12})([0-9A-Fa-f]{2}){96}$")
+
+	// Validate payload against mac address regex - skip if not mac address
+	if !MatchPayloadRegex.MatchString(hexPayload) {
+		err = fmt.Errorf("payload does not match mac address regex")
+		return
+	}
+
+	// Trim preamble from WOL payload
+	hexPayload = strings.TrimPrefix(hexPayload, "ffffffffffff")
+
+	// Format MAC address from payload with colons
 	for characterPosition := 0; characterPosition < 12; characterPosition += 2 {
 		if characterPosition > 0 {
 			MACAddress += ":"
 		}
-		MACAddress += strings.ToUpper(payloadMACAddress[characterPosition : characterPosition+2])
+		MACAddress += strings.ToUpper(hexPayload[characterPosition : characterPosition+2])
 	}
 
-	// LOOP THROUGH VMS AND FIND WHICH VM HAS MAC IN PACKET PAYLOAD
-	var VMID, VMTYPE, VMNAME string
+	return
+}
+
+// ###################################
+//	MATCH MAC TO VM
+// ###################################
+
+// Finds matching MAC address in Proxmox VM configuration files and retrieves the VM ID, Type, and name
+func matchMACtoVM(MACAddress string, VMConfigPaths []string) (VMID string, VMTYPE string, VMNAME string, err error) {
+	// Recover from panic
+	defer func() {
+		if r := recover(); r != nil {
+			logError("panic while processing received packet payload", fmt.Errorf("%v", r), false)
+		}
+	}()
+
+	// RegEx vars
+	VMNameRegex := regexp.MustCompile(`(?i)name\:\s(.*)`)
+
+	// Search through VM config directories for a matching mac address from the packet payload
 	for _, VMConfigPath := range VMConfigPaths {
-		filepath.Walk(VMConfigPath, func(VMConfigPath string, info os.FileInfo, err error) error {
-			logError(fmt.Sprintf("failed to walk VM config path %s", VMConfigPath), err, false)
+		// Get a list of files in directory
+		var configFiles []fs.DirEntry
+		configFiles, err = os.ReadDir(VMConfigPath)
+		if err != nil {
+			fmt.Errorf("failed to walk VM config path %s: %v", VMConfigPath)
+			return
+		}
 
-			// SKIP TO NEXT FILE IF NOT .CONF EXTENSION
-			if ! strings.HasSuffix(VMConfigPath, ".conf") {
-				return nil
+		// Search through files in this directory for matching MAC
+		for _, dirEntry := range configFiles {
+			// Skip sub-directories
+			if dirEntry.IsDir() {
+				continue
 			}
 
-			// READ IN CONTENTS FOR THIS FILE
-			VMConfigFileContents, err := os.ReadFile(VMConfigPath)
-			logError(fmt.Sprintf("failed to read VM config %s", VMConfigPath), err, false)
+			// Get name of file
+			configFile := dirEntry.Name()
 
-			// SKIP TO NEXT FILE IF MAC FROM PACKET PAYLOAD IS NOT PRESENT
-			if ! strings.Contains(strings.ToUpper(string(VMConfigFileContents)), MACAddress) {
-				return nil
+			// Skip files without .conf extension
+			if !strings.HasSuffix(configFile, ".conf") {
+				continue
 			}
 
-			// ASSIGN VM VARS USING INFO FROM VM/LXC CONFIG
-			VMID = strings.TrimSuffix(filepath.Base(VMConfigPath), ".conf")
-			VMTYPE = filepath.Base(filepath.Dir(VMConfigPath))
-			VMNameLine := VMNameRegex.FindStringSubmatch(string(VMConfigFileContents))
+			// Get full path
+			configFilePath := filepath.Join(VMConfigPath, configFile)
+
+			// Read contents of this config file
+			var configFileBytes []byte
+			configFileBytes, err = os.ReadFile(configFilePath)
+			if err != nil {
+				err = fmt.Errorf(" %s: %v", configFilePath, err)
+			}
+
+			// Convert file contents to string
+			configFileContents := string(configFileBytes)
+
+			// Skip to next file if MAC isn't in this file
+			if !strings.Contains(strings.ToUpper(configFileContents), MACAddress) {
+				continue
+			}
+
+			// Found MAC match - add relevant VM info to variables to start VM
+			VMID = strings.TrimSuffix(configFile, ".conf")
+			VMTYPE = filepath.Base(filepath.Dir(configFilePath))
+			VMNameLine := VMNameRegex.FindStringSubmatch(configFileContents)
 			VMNAME = VMNameLine[1]
-			return filepath.SkipDir
-		})
+		}
+
+		// Only error out if a VMID, VMTYPE was not found and err is present
+		// This is to catch failed reads of config files, but only when the entire MAC search failed
+		if err != nil && len(VMID) == 0 && VMTYPE == "" {
+			err = fmt.Errorf("failed to read VM config(s):%v", err)
+			return
+		}
 	}
 
-	// IF SEARCH DIDNT RETURN ANY RESULTS, NO VM HAS MATCHING MAC
-	if len(VMID) == 0 {
-		logMessage(fmt.Sprintf("Error: Could not find VM/LXC for MAC %v", MACAddress))
+	return
+}
+
+// ###################################
+//	VALIDATE VM INFORMATION
+// ###################################
+
+// Ensures VM info is not empty and matches expected format using regex
+func validateVMInfo(VMID string, VMTYPE string, VMNAME string) (err error) {
+	// Check for empty ID
+	if VMID == "" {
+		err = fmt.Errorf("could not find VM/LXC")
 		return
 	}
 
-	// POWER ON VM OR LXC
-	if strings.Contains(VMTYPE, "qemu") {
-		logMessage(fmt.Sprintf("Powering on VM %s - %s", VMID, VMNAME))
-		cmd := exec.Command("qm", "start", VMID)
-		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		logError(fmt.Sprintf("failed to start VM %s - %s", VMID, VMNAME), err, false)
-	} else if strings.Contains(VMTYPE, "lxc") {
-		logMessage(fmt.Sprintf("Powering on LXC %s - %s", VMID, VMNAME))
-		cmd := exec.Command("pct", "start", VMID)
-		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		logError(fmt.Sprintf("failed to start LXC %s - %s", VMID, VMNAME), err, false)
-	} else {
-		logMessage(fmt.Sprintf("Error: could not determine if ID %s is a VM or LXC", VMID))
+	// Check for empty type
+	if VMTYPE == "" {
+		err = fmt.Errorf("could not determine if VM or LXC")
+		return
 	}
+
+	// Check for empty name
+	if VMNAME == "" {
+		err = fmt.Errorf("could not find VM/LXC name")
+		return
+	}
+
+	// Sanity check received values for VM information
+	// Validate VMID
+	NumericRegex := regexp.MustCompile(`^[0-9]+$`)
+	if !NumericRegex.MatchString(VMID) {
+		err = fmt.Errorf("invalid VM ID (%s)", VMID)
+		return
+	}
+
+	// Validate VM Type
+	VirtualTypeRegex := regexp.MustCompile(`^(qemu-server|lxc)$`)
+	if !VirtualTypeRegex.MatchString(VMTYPE) {
+		err = fmt.Errorf("invalid VM Type (%s)", VMTYPE)
+		return
+	}
+
+	// Validate VM Name
+	HostnameRegex := regexp.MustCompile(`^([A-Za-z0-9-]{1,63}\.?)+[A-Za-z0-9-]{2,253}$`)
+	if !HostnameRegex.MatchString(VMNAME) {
+		err = fmt.Errorf("invalid VM Name (%s)", VMNAME)
+		return
+	}
+
+	return
+}
+
+// ###################################
+//	POWER ON VM
+// ###################################
+
+func powerOn(VMCMD string, TYPENAME string, VMID string, VMNAME string) (err error) {
+	// Recover from panic
+	defer func() {
+		if r := recover(); r != nil {
+			logError("panic while powering on VM", fmt.Errorf("%v", r), false)
+		}
+	}()
+
+	// Check if VM is already running
+	cmd := exec.Command(VMCMD, "status", VMID)
+	stdout, err := cmd.CombinedOutput()
+	if err != nil {
+		err = fmt.Errorf("failed to check status of %s %s - %s: %v", TYPENAME, VMID, VMNAME, err)
+		return
+	}
+
+	// Log and return if already running
+	if strings.Contains(string(stdout), "running") {
+		err = fmt.Errorf("already running: %s %s - %s", TYPENAME, VMID, VMNAME)
+		return
+	}
+
+	// Start the VM based on VMID
+	cmd = exec.Command(VMCMD, "start", VMID)
+	_, err = cmd.CombinedOutput()
+	if err != nil {
+		err = fmt.Errorf("failed to start %s %s - %s: %v", TYPENAME, VMID, VMNAME, err)
+		return
+	}
+
+	// Show progress to user
+	logMessage(fmt.Sprintf("Powered on %s %s - %s", TYPENAME, VMID, VMNAME))
+	return
 }

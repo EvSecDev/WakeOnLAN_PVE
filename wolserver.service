@@ -4,7 +4,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/root/wakeonlanserver -c /root/wol-config.json
+ExecStart=/root/wakeonlanserver --start-server --config /root/wol-config.json
 
 [Install]
 WantedBy=multi-user.target
