@@ -49,7 +49,7 @@ var remoteLogEnabled bool
 var syslogAddress *net.UDPAddr
 
 // Program Meta Info
-const progVersion = string("v1.0.2")
+const progVersion string = "v1.0.2"
 const usage = `
 Options:
     -c, --config </path/to/json>    Path to the configuration file [default: wol-config.json]
