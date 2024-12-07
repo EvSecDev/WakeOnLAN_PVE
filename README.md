@@ -26,14 +26,19 @@ With that said, this program is very flexible and allows for the following:
 
 ```
 Usage of wol-server-pve-amd64-dynamic:
--V           Print Version Information
--c string    Path to the configuration file (default "wol-config.json")
+
+Options
+    -c, --config </path/to/json>    Path to the configuration file [default: wol-config.json]
+    -s, --start-server              Start WOL Server (Requires '--config')
+    -h, --help                      Show this help menu
+    -V, --version                   Show version and packages
+    -v, --versionid                 Show only version number
 ```
 
 ### Deployment
 
-1. Copy the wol-server binary to the hypervisor itself.
-2. Copy the wol-config.json file to the hypervisor.
-3. Configure the wol-config.json to include the options you require.
-4. A system service file is supplied for persistence, if desired.
-5. Start the service using the configuration JSON and test with your choice of WOL client program.
+1. Copy the install script to the hypervisor.
+2. If desired, modify the variables at the top of the install script.
+3. Run the install script.
+4. Modify the wol-config.json (usually in `/etc`) with the parameters you require.
+5. Start the systemd service.
