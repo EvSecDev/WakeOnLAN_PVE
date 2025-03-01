@@ -32,7 +32,7 @@ func matchMACtoVM(MACAddress string, VMConfigPaths []string) (VMID string, VMTYP
 		var configFiles []fs.DirEntry
 		configFiles, err = os.ReadDir(VMConfigPath)
 		if err != nil {
-			fmt.Errorf("failed to walk VM config path %s: %v", VMConfigPath)
+			err = fmt.Errorf("failed to walk VM config path %s: %v", VMConfigPath, err)
 			return
 		}
 

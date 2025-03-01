@@ -1,4 +1,0 @@
-Minor code refactoring
-Added build script
-Added install script
-Added apparmor profile

@@ -39,7 +39,7 @@ var remoteLogEnabled bool
 var syslogAddress *net.UDPAddr
 
 // Program Meta Info
-const progVersion string = "v1.0.3"
+const progVersion string = "v1.0.4"
 const usage = `
 Options:
     -c, --config </path/to/json>    Path to the configuration file [default: wol-config.json]
@@ -106,7 +106,7 @@ func startServer(configFile string) (err error) {
 	var config parseJsonConfig
 	err = json.Unmarshal(jsonConfigFile, &config)
 	if err != nil {
-		err = fmt.Errorf("failed to parse JSON config", err)
+		err = fmt.Errorf("failed to parse JSON config: %v", err)
 		return
 	}
 
@@ -119,7 +119,7 @@ func startServer(configFile string) (err error) {
 			syslogAddress, err = net.ResolveUDPAddr("udp", config.SyslogDestinationIP+":"+config.SyslogDestinationPort)
 		}
 		if err != nil {
-			err = fmt.Errorf("failed to resolve syslog address", err)
+			err = fmt.Errorf("failed to resolve syslog address: %v", err)
 			return
 		}
 		remoteLogEnabled = true

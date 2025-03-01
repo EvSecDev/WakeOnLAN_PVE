@@ -106,6 +106,11 @@ do
 	    usage
 	    exit 0
  	    ;;
+      *)
+	    echo "Unknown Option"
+	    usage
+	    exit 0
+ 	    ;;
 	esac
 done
 
