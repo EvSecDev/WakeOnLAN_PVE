@@ -1,0 +1,29 @@
+#!/bin/sh
+set -ex
+cd /tmp
+
+# Install build tools
+apk update
+apk add --no-cache linux-headers musl-dev gcc libpcap-dev ca-certificates curl grep
+
+# Install latest go binary
+latest_file=$(curl -s https://go.dev/dl/ | grep -oPm1 'go[0-9.]+\.linux-amd64.tar.gz')
+wget -qO- "https://golang.org/dl/$latest_file" | tar -xz -C /usr/local/bin 
+
+# Set path to go binary
+export PATH="/usr/local/bin/go/bin:$PATH"
+
+# Set go build variables
+export CGO_ENABLED=1
+export GOOS=linux
+export GOARCH=amd64
+export GOCACHE=/tmp/.cache/go-build
+
+# Move to source directory for build
+cd /mnt
+
+# Ensure we have updated packages
+go mod tidy
+
+# Build static binary
+go build -a -ldflags '-linkmode external -extldflags "-static -s -w" -buildid= ' -o /mnt/out .

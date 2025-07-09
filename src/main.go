@@ -12,11 +12,9 @@ import (
 	"sync"
 )
 
-// ###################################
-//      GLOBAL VARIABLES
-// ###################################
+const progVersion string = "v1.0.5"
 
-type parseJsonConfig struct {
+type Config struct {
 	ListenIntf            []ListenInterfaceParams `json:"listenIntf"`
 	VMConfigPaths         []string                `json:"pathToVMConfigurations"`
 	RemoteLogEnabled      bool                    `json:"syslogEnabled"`
@@ -34,54 +32,49 @@ type ListenInterfaceParams struct {
 	PromiscMode   bool     `json:"PromiscuousMode"`
 }
 
-// For syslog messages
 var remoteLogEnabled bool
 var syslogAddress *net.UDPAddr
 
-// Program Meta Info
-const progVersion string = "v1.0.4"
-const usage = `
+func main() {
+	var configFile string
+	var startServerFlagExists bool
+	var installServerRequested bool
+	var versionFlagExists bool
+	var versionNumberFlagExists bool
+
+	const usage = `
 Options:
     -c, --config </path/to/json>    Path to the configuration file [default: wol-config.json]
     -s, --start-server              Start WOL Server (Requires '--config')
+        --install-server            Start installation for server daemon
     -h, --help                      Show this help menu
     -V, --version                   Show version and packages
     -v, --versionid                 Show only version number
 
-Documentation: <https://github.com/EvSecDev/WakeOnLAN_PVE>
+Report bugs to: dev@evsec.net
+WakeOnLan_PVE home page: <https://github.com/EvSecDev/WakeOnLAN_PVE>
+General help using GNU software: <https://www.gnu.org/gethelp/>
 `
-
-// ###################################
-//	START
-// ###################################
-
-func main() {
-	// Program Argument Variables
-	var configFile string
-	var startServerFlagExists bool
-	var versionFlagExists bool
-	var versionNumberFlagExists bool
-
-	// Read Program Arguments - allowing both short and long args
-	flag.StringVar(&configFile, "c", "wol-config.json", "")
-	flag.StringVar(&configFile, "config", "wol-config.json", "")
+	flag.StringVar(&configFile, "c", "wolpve-config.json", "")
+	flag.StringVar(&configFile, "config", "wolpve-config.json", "")
 	flag.BoolVar(&startServerFlagExists, "s", false, "")
 	flag.BoolVar(&startServerFlagExists, "start-server", false, "")
+	flag.BoolVar(&installServerRequested, "install-server", false, "")
 	flag.BoolVar(&versionFlagExists, "V", false, "")
 	flag.BoolVar(&versionFlagExists, "version", false, "")
 	flag.BoolVar(&versionNumberFlagExists, "v", false, "")
 	flag.BoolVar(&versionNumberFlagExists, "versionid", false, "")
 
-	// Custom help menu
 	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...\n%s", os.Args[0], usage) }
 	flag.Parse()
 
-	// Act on arguments
 	if versionFlagExists {
 		fmt.Printf("WakeOnLAN_PVE %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Print("Packages: runtime encoding/hex encoding/json flag fmt log/syslog net os os/exec path/filepath regexp strings sync time github.com/google/gopacket github.com/google/gopacket/pcap\n")
+		fmt.Print("Direct Package Imports: runtime encoding/hex strings golang.org/x/term encoding/json flag fmt time log/syslog os/exec net github.com/google/gopacket regexp os sync path/filepath github.com/google/gopacket/pcap io/fs\n")
 	} else if versionNumberFlagExists {
 		fmt.Println(progVersion)
+	} else if installServerRequested {
+		installServer()
 	} else if startServerFlagExists {
 		err := startServer(configFile)
 		if err != nil {
@@ -95,22 +88,19 @@ func main() {
 // ###################################
 
 func startServer(configFile string) (err error) {
-	// Load config file contents
 	jsonConfigFile, err := os.ReadFile(configFile)
 	if err != nil {
 		err = fmt.Errorf("failed to read config file: %v", err)
 		return
 	}
 
-	// Parse JSON config into struct
-	var config parseJsonConfig
+	var config Config
 	err = json.Unmarshal(jsonConfigFile, &config)
 	if err != nil {
 		err = fmt.Errorf("failed to parse JSON config: %v", err)
 		return
 	}
 
-	// Setup remote logging if requested
 	if config.RemoteLogEnabled {
 		// Set address in global for awareness
 		if strings.Contains(config.SyslogDestinationIP, ":") {
@@ -127,7 +117,6 @@ func startServer(configFile string) (err error) {
 		remoteLogEnabled = false
 	}
 
-	// SHOW PROGRESS
 	logMessage(fmt.Sprintf("WOL-PVE Server (%s) starting...", progVersion))
 
 	// Start packet captures for each listening interface

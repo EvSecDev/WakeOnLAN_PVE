@@ -22,7 +22,6 @@ func captureAndProcessPackets(WaitGroup *sync.WaitGroup, PCAPParameters ListenIn
 		}
 	}()
 
-	// Signal when routine is done
 	defer WaitGroup.Done()
 
 	// Open packet capture handle
@@ -38,17 +37,14 @@ func captureAndProcessPackets(WaitGroup *sync.WaitGroup, PCAPParameters ListenIn
 		strings.Join(PCAPParameters.FilterSrcMAC, " or "), strings.Join(PCAPParameters.FilterSrcIP, " or "),
 		strings.Join(PCAPParameters.FilterDstIP, " or "), strings.Join(PCAPParameters.FilterDstMAC, " or "), PCAPParameters.FilterDstPort)
 
-	// Set BPF filter on capture handle
 	err = PCAPHandle.SetBPFFilter(PCAPfilter)
 	if err != nil {
 		logError("failed to set BPF filter", err, false)
 		return
 	}
 
-	// Show progress to user
 	logMessage(fmt.Sprintf("Listening for WOL packets on interface %s", PCAPParameters.ListenIntf))
 
-	// Process captured packets one at a time
 	packetSource := gopacket.NewPacketSource(PCAPHandle, PCAPHandle.LinkType())
 	for recvPacket := range packetSource.Packets() {
 		// Ensure payload is valid and extract MAC address

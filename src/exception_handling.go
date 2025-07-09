@@ -15,6 +15,10 @@ import (
 
 // Logs error description and error - will exit entire program if requested
 func logError(errorDescription string, errorMessage error, exitRequested bool) {
+	if errorMessage == nil {
+		return
+	}
+
 	// Create formatted error message and give to message func
 	fullMessage := "Error: " + errorDescription + ": " + errorMessage.Error()
 	logMessage(fullMessage)
@@ -42,7 +46,6 @@ func logMessage(message string) {
 		message = "Failed to send message to desired location: " + err.Error() + " - ORIGINAL MESSAGE: " + message
 	}
 
-	// Write to stdout if other messages aren't selected or fail
 	fmt.Printf("%s\n", message)
 }
 
