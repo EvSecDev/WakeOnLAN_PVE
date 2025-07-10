@@ -37,37 +37,43 @@ func captureAndProcessPackets(WaitGroup *sync.WaitGroup, PCAPParameters ListenIn
 		strings.Join(PCAPParameters.FilterSrcMAC, " or "), strings.Join(PCAPParameters.FilterSrcIP, " or "),
 		strings.Join(PCAPParameters.FilterDstIP, " or "), strings.Join(PCAPParameters.FilterDstMAC, " or "), PCAPParameters.FilterDstPort)
 
+	logMessage("Setting capture filter as '%s'", PCAPfilter)
+
 	err = PCAPHandle.SetBPFFilter(PCAPfilter)
 	if err != nil {
 		logError("failed to set BPF filter", err, false)
 		return
 	}
 
-	logMessage(fmt.Sprintf("Listening for WOL packets on interface %s", PCAPParameters.ListenIntf))
+	logMessage("Listening for WOL packets on interface %s", PCAPParameters.ListenIntf)
 
 	packetSource := gopacket.NewPacketSource(PCAPHandle, PCAPHandle.LinkType())
 	for recvPacket := range packetSource.Packets() {
+		// Get headers
+		l2meta := recvPacket.LinkLayer().LinkFlow()
+		l3meta := recvPacket.NetworkLayer().NetworkFlow()
+
 		// Ensure payload is valid and extract MAC address
 		MACAddress, err := validatePacket(recvPacket)
 		if err != nil {
-			logMessage(fmt.Sprintf("Receivd invalid packet: %v", err))
+			logMessage("Receivd invalid packet from %s (%s): %v", l3meta.Src(), l2meta.Src(), err)
 			continue
 		}
 
 		// Log reception of WOL packet
-		logMessage(fmt.Sprintf("Received Wake-on-LAN packet on interface %s", PCAPParameters.ListenIntf))
+		logMessage("Received Wake-on-LAN packet on interface %s from %s (%s)", PCAPParameters.ListenIntf, l3meta.Src(), l2meta.Src())
 
 		// Get VM information from matching MAC
 		VMID, VMTYPE, VMNAME, err := matchMACtoVM(MACAddress, VMConfigPaths)
 		if err != nil {
-			logMessage(fmt.Sprintf("Error searching for MAC Address: %v", err))
+			logMessage("Error searching for MAC Address: %v", err)
 			continue
 		}
 
 		// Ensure VM information is valid
 		err = validateVMInfo(VMID, VMTYPE, VMNAME)
 		if err != nil {
-			logMessage(fmt.Sprintf("Error: %v for MAC %s", err, MACAddress))
+			logMessage("Error: %v for MAC %s", err, MACAddress)
 			continue
 		}
 
@@ -80,7 +86,7 @@ func captureAndProcessPackets(WaitGroup *sync.WaitGroup, PCAPParameters ListenIn
 
 		// Check for error in either power on function
 		if err != nil {
-			logMessage(fmt.Sprintf("%v", err))
+			logMessage("%v", err)
 			continue
 		}
 	}

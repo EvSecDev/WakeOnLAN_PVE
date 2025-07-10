@@ -117,7 +117,7 @@ func startServer(configFile string) (err error) {
 		remoteLogEnabled = false
 	}
 
-	logMessage(fmt.Sprintf("WOL-PVE Server (%s) starting...", progVersion))
+	logMessage("WOL-PVE Server (%s) starting...", progVersion)
 
 	// Start packet captures for each listening interface
 	if len(config.ListenIntf) == 1 {

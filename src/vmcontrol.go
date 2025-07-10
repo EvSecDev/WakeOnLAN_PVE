@@ -42,6 +42,6 @@ func powerOn(VMCMD string, TYPENAME string, VMID string, VMNAME string) (err err
 	}
 
 	// Show progress to user
-	logMessage(fmt.Sprintf("Powered on %s %s - %s", TYPENAME, VMID, VMNAME))
+	logMessage("Powered on %s %s - %s", TYPENAME, VMID, VMNAME)
 	return
 }

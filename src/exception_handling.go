@@ -20,8 +20,7 @@ func logError(errorDescription string, errorMessage error, exitRequested bool) {
 	}
 
 	// Create formatted error message and give to message func
-	fullMessage := "Error: " + errorDescription + ": " + errorMessage.Error()
-	logMessage(fullMessage)
+	logMessage("Error: %s: %v", errorDescription, errorMessage)
 
 	// Exit prog after sending error messages
 	if exitRequested {
@@ -30,12 +29,12 @@ func logError(errorDescription string, errorMessage error, exitRequested bool) {
 }
 
 // Send message string to remote log server or stdout if remote log not enabled
-func logMessage(message string) {
+func logMessage(message string, vars ...any) {
 	var err error
 
 	// Write to remote socket
 	if remoteLogEnabled {
-		err = logToRemote(message)
+		err = logToRemote(message, vars...)
 		if err == nil {
 			return
 		}
@@ -46,11 +45,14 @@ func logMessage(message string) {
 		message = "Failed to send message to desired location: " + err.Error() + " - ORIGINAL MESSAGE: " + message
 	}
 
-	fmt.Printf("%s\n", message)
+	// Newlines for stdout
+	message = message + "\n"
+
+	fmt.Printf(message, vars...)
 }
 
 // Sends message to remote syslog server in standard-ish format
-func logToRemote(message string) error {
+func logToRemote(message string, vars ...any) error {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 
 	// If no address, go to stdout write
@@ -65,8 +67,10 @@ func logToRemote(message string) error {
 	}
 	defer conn.Close()
 
+	logText := fmt.Sprintf(message, vars...)
+
 	// Format message
-	syslogMsg := fmt.Sprintf("<%d>%s %s: %s", syslog.LOG_INFO, timestamp, "wol-server", message)
+	syslogMsg := fmt.Sprintf("<%d>%s %s: %s", syslog.LOG_INFO, timestamp, "wol-server", logText)
 
 	// Write message to remote host - failure writes to stdout
 	_, err = conn.Write([]byte(syslogMsg))
