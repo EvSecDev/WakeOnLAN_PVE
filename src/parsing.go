@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -22,9 +21,6 @@ func matchMACtoVM(MACAddress string, VMConfigPaths []string) (VMID string, VMTYP
 			logError("panic while processing received packet payload", fmt.Errorf("%v", r), false)
 		}
 	}()
-
-	// RegEx vars
-	VMNameRegex := regexp.MustCompile(`(?i)name\:\s(.*)`)
 
 	// Search through VM config directories for a matching mac address from the packet payload
 	for _, VMConfigPath := range VMConfigPaths {
@@ -64,7 +60,7 @@ func matchMACtoVM(MACAddress string, VMConfigPaths []string) (VMID string, VMTYP
 			// Convert file contents to string
 			configFileContents := string(configFileBytes)
 
-			// Skip to next file if MAC isn't in this file
+			// Skip to next file if MAC isn't anywhere in this file
 			if !strings.Contains(strings.ToUpper(configFileContents), MACAddress) {
 				continue
 			}
@@ -72,8 +68,24 @@ func matchMACtoVM(MACAddress string, VMConfigPaths []string) (VMID string, VMTYP
 			// Found MAC match - add relevant VM info to variables to start VM
 			VMID = strings.TrimSuffix(configFile, ".conf")
 			VMTYPE = filepath.Base(filepath.Dir(configFilePath))
-			VMNameLine := VMNameRegex.FindStringSubmatch(configFileContents)
-			VMNAME = VMNameLine[1]
+
+			configLines := strings.Split(configFileContents, "\n")
+			for _, line := range configLines {
+				if strings.HasPrefix(line, "name: ") {
+					// QEMU conf
+					VMNAME = strings.TrimPrefix(line, "name: ")
+				} else if strings.HasPrefix(line, "hostname: ") {
+					// LXC conf
+					VMNAME = strings.TrimPrefix(line, "hostname: ")
+				}
+			}
+
+			if VMNAME == "" {
+				err = fmt.Errorf("found MAC address in file '%s' but could not identify a VM name anywhere in the file", configFilePath)
+				return
+			}
+
+			VMNAME = strings.TrimSpace(VMNAME)
 		}
 
 		// Only error out if a VMID, VMTYPE was not found and err is present

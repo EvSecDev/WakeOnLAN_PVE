@@ -4,7 +4,6 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/google/gopacket"
@@ -14,7 +13,7 @@ import (
 //	VALIDATE PACKET
 // ###################################
 
-// Ensures received packet payload is present, its length is correct, and its payload matches regex
+// Ensures received packet payload is present, its length is correct, and its payload matches hexadecimal characters
 // Extracts the first 12 hex characters from the payload
 func validatePacket(recvPacket gopacket.Packet) (MACAddress string, err error) {
 	// Get payload from packet - skip if empty
@@ -27,26 +26,32 @@ func validatePacket(recvPacket gopacket.Packet) (MACAddress string, err error) {
 	// Convert payload to hex
 	hexPayload := hex.EncodeToString(payload.Payload())
 
-	// Ensure payload length is within bounds for a WOL packet
-	if len(hexPayload) < 24 {
-		err = fmt.Errorf("payload must be at least 24 characters long")
-		return
-	} else if len(hexPayload) > 205 {
-		err = fmt.Errorf("payload cannot be more than 205 characters long")
+	// Ensure payload length is expected WOL size
+	if len(hexPayload) != 204 {
+		err = fmt.Errorf("payload must be exactly 204 characters long")
 		return
 	}
 
-	// Regex for a WOL packet payload
-	MatchPayloadRegex := regexp.MustCompile("^(?:f{12})([0-9A-Fa-f]{2}){96}$")
-
-	// Validate payload against mac address regex - skip if not mac address
-	if !MatchPayloadRegex.MatchString(hexPayload) {
-		err = fmt.Errorf("payload does not match mac address regex")
+	// Validate WOL packet payload prefix
+	if !strings.HasPrefix(hexPayload, "ffffffffffff") {
+		err = fmt.Errorf("payload does not have wakeonlan sync stream prefix")
 		return
 	}
 
 	// Trim preamble from WOL payload
 	hexPayload = strings.TrimPrefix(hexPayload, "ffffffffffff")
+
+	// Validate rest of payload is only hex
+	for _, char := range hexPayload {
+		switch {
+		case char >= '0' && char <= '9':
+		case char >= 'a' && char <= 'f':
+		case char >= 'A' && char <= 'F':
+		default:
+			err = fmt.Errorf("payload does not consist solely of hexadecimal characters")
+			return
+		}
+	}
 
 	// Format MAC address from payload with colons
 	for characterPosition := 0; characterPosition < 12; characterPosition += 2 {
@@ -63,7 +68,7 @@ func validatePacket(recvPacket gopacket.Packet) (MACAddress string, err error) {
 //	VALIDATE VM INFORMATION
 // ###################################
 
-// Ensures VM info is not empty and matches expected format using regex
+// Ensures VM info is not empty and matches expected format
 func validateVMInfo(VMID string, VMTYPE string, VMNAME string) (err error) {
 	// Check for empty ID
 	if VMID == "" {
@@ -85,24 +90,37 @@ func validateVMInfo(VMID string, VMTYPE string, VMNAME string) (err error) {
 
 	// Sanity check received values for VM information
 	// Validate VMID
-	NumericRegex := regexp.MustCompile(`^[0-9]+$`)
-	if !NumericRegex.MatchString(VMID) {
-		err = fmt.Errorf("invalid VM ID (%s)", VMID)
-		return
+	for _, char := range VMID {
+		switch {
+		case char >= '0' && char <= '9':
+		default:
+			err = fmt.Errorf("invalid VM ID (%s): ID does not consist solely of numeric characters (0-9)", VMID)
+			return
+		}
 	}
 
 	// Validate VM Type
-	VirtualTypeRegex := regexp.MustCompile(`^(qemu-server|lxc)$`)
-	if !VirtualTypeRegex.MatchString(VMTYPE) {
-		err = fmt.Errorf("invalid VM Type (%s)", VMTYPE)
+	if VMTYPE != "qemu-server" && VMTYPE != "lxc" {
+		err = fmt.Errorf("invalid VM Type (%s): must be 'qemu-server' or 'lxc'", VMTYPE)
 		return
 	}
 
 	// Validate VM Name
-	HostnameRegex := regexp.MustCompile(`^([A-Za-z0-9-]{1,63}\.?)+[A-Za-z0-9-]{2,253}$`)
-	if !HostnameRegex.MatchString(VMNAME) {
-		err = fmt.Errorf("invalid VM Name (%s)", VMNAME)
+	if len(VMNAME) > 255 {
+		err = fmt.Errorf("invalid VM Name (%s): must not be more than 255 characters", VMNAME)
 		return
+	}
+	for _, char := range VMNAME {
+		switch {
+		case char >= '0' && char <= '9':
+		case char >= 'a' && char <= 'z':
+		case char >= 'A' && char <= 'Z':
+		case char == '-':
+		case char == '.':
+		default:
+			err = fmt.Errorf("invalid VM Name (%s): must only contain alphanumeric, dash, or period characters", VMNAME)
+			return
+		}
 	}
 
 	return

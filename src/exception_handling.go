@@ -35,14 +35,10 @@ func logMessage(message string, vars ...any) {
 	// Write to remote socket
 	if remoteLogEnabled {
 		err = logToRemote(message, vars...)
-		if err == nil {
-			return
+		// Prep err from functions for writing to stdout
+		if err != nil && err.Error() != "syslogAddress is empty" {
+			message = "Failed to send message to desired location: " + err.Error() + " - ORIGINAL MESSAGE: " + message
 		}
-	}
-
-	// Prep err from functions for writing to stdout
-	if err != nil && err.Error() != "syslogAddress is empty" {
-		message = "Failed to send message to desired location: " + err.Error() + " - ORIGINAL MESSAGE: " + message
 	}
 
 	// Newlines for stdout

@@ -70,7 +70,7 @@ General help using GNU software: <https://www.gnu.org/gethelp/>
 
 	if versionFlagExists {
 		fmt.Printf("WakeOnLAN_PVE %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Print("Direct Package Imports: runtime encoding/hex strings golang.org/x/term encoding/json flag fmt time log/syslog os/exec net github.com/google/gopacket regexp os sync path/filepath github.com/google/gopacket/pcap io/fs\n")
+		fmt.Print("Direct Package Imports: runtime encoding/hex strings golang.org/x/term encoding/json flag fmt time log/syslog os/exec net github.com/google/gopacket os sync path/filepath github.com/google/gopacket/pcap io/fs\n")
 	} else if versionNumberFlagExists {
 		fmt.Println(progVersion)
 	} else if installServerRequested {
