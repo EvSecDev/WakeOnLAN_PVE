@@ -43,10 +43,9 @@ WakeOnLan_PVE home page: <https://github.com/EvSecDev/WakeOnLAN_PVE>
 General help using GNU software: <https://www.gnu.org/gethelp/>
 ```
 
-### Deployment
+### Installation
 
-1. Copy the install script to the hypervisor.
-2. If desired, modify the variables at the top of the install script.
-3. Run the install script.
-4. Modify the wol-config.json (usually in `/etc`) with the parameters you require.
-5. Start the systemd service.
+1. Copy the executable to the hypervisor.
+2. Run `./wakeonlanserver* --install-server`.
+3. Modify the wol-config.json with the parameters you require.
+4. Start the systemd service.
