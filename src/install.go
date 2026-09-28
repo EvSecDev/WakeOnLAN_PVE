@@ -72,6 +72,8 @@ profile WOLPVE @{exelocation} flags=(enforce) {
 
   # Capabilities
   capability net_raw,
+  # Needed in case WOL program comes up before the associated VM of the interfaces comes up
+  capability net_admin,
   network inet dgram,
   network inet6 dgram,
   network netlink raw,
